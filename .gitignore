@@ -1,0 +1,133 @@
+Enter file contents here@ ****************************************************************************
+@ * Simple Little Operating System - SLOS
+@ ****************************************************************************
+
+@ ****************************************************************************
+@ *
+@ * Module     : scheduler.s
+@ * Project  : SLOS
+@ * Version	: 0.09
+@ * Originator	: Andrew N. Sloss
+@ * History    :
+@ * 
+@ * 16th July 2003 Andrew N. Sloss
+@ * - added header information
+@ *
+@ ****************************************************************************
+
+     .text
+     .code 32
+     .align 0
+     .global PCB_CurrentTask
+     .global PCB_PtrCurrentTask
+     .global PCB_PtrNextTask
+     .global PCB_Table
+     .global PCB_TopOfIRQStack
+     .global kernelScheduler
+	  .global PCB_PtrTask1
+	  .global PCB_PtrTask2
+	  .global PCB_PtrTask3
+
+kernelScheduler:
+/*
+@ ---------------------------------------------------
+@ Round Robin Scheduler
+@ ---------------------------------------------------
+*/
+
+CurrentTask:
+    LDR     r3,=PCB_CurrentTask	@ r3 = PCB_CurrentTask
+    LDR     r0,[r3]      			@ r0 = 현재 태스크
+	 LDR     r1,=PCB_Table			@ r1 = PCB_TBALE 주소
+    LDR     r1,[r1,r0,LSL#2]    	@ r1 = mem32[r1 + r0*4]
+    LDR     r2,=PCB_PtrCurrentTask	@ r2 = PCB + ptrCurrentTask
+	 STR		r1,[r2]				@ mem32[r2] = r1
+	 CMP		r0, #0
+	 BEQ		ADD_Count1	
+	 CMP		r0, #1
+	 BEQ		ADD_Count2
+	 CMP		r0, #2
+	 BEQ		ADD_Count3	
+
+ADD_Count1:
+	ADD	r8,r8,#1
+	CMP	r8, r9
+	BLE	CMP_Task13
+	B		CMP_Task23
+
+ADD_Count2:
+	ADD	r9,r9,#1
+	CMP	r9, r8
+	BLE	CMP_Task23
+	B		CMP_Task13
+
+ADD_Count3:
+	ADD	r10,r10,#1
+	CMP	r10, r8
+	BLE	CMP_Task23
+	B		CMP_Task12
+
+CMP_Task13:
+	CMP	r8,r10
+	BLE	Select_Task1
+	B		Select_Task3
+
+CMP_Task12:
+	CMP	r8,r9
+	BLE	Select_Task1
+	B		Select_Task2
+
+CMP_Task23:
+	CMP	r9,r10
+	BLE	Select_Task2
+	B		Select_Task3
+
+Select_Task1:
+	MOV	r0, #0
+	B		NextTask
+
+Select_Task2:
+	MOV	r0, #1
+	B		NextTask
+
+Select_Task3:
+	MOV	r0, #2
+	B		NextTask
+/*
+@ ** PCB_PtrCurrentTask - updated with the new address
+*/
+NextTask:
+     STR     r0,[r3]      			@ mem32[r3] = 다음 태스크 ID
+     LDR     r1,=PCB_Table			@ r1 = PCB_Table 주소
+     LDR     r1,[r1,r0,LSL #2]    	@ r1 = memory[r1 + r0*4]
+     LDR     r0,=PCB_PtrNextTask	@ r0 = PCB_ptrNextTask
+     STR     r1,[r0]     			@ memory[r0] = 다음 태스크
+/*
+@ ** PCB_PtrCurrentTask   = current PCB
+@ ** PCB_PtrNextTask	  = next PCB
+@ ** PCB_CurrentTask	  = new TASK_ID
+
+@ ------------------------------------------------------
+@ Context Switch
+@ ------------------------------------------------------
+*/
+
+handler_contextswitch:
+
+     LDMFD   sp!,{r0-r3,r5,r8-r11,r12,r14}		@ 레지스터 저장
+     LDR     r13,=PCB_PtrCurrentTask	
+     LDR     r13,[r13]					@ r13 = mem32[r13]
+     SUB     r13,r13,#60				@ r13 -= 15 * 4
+     STMIA   r13,{r0-r14}^  			@ user 모드 레지스터 저장
+     MRS     r0, SPSR					@ spsr 복사
+     STMDB   r13,{r0,r14}    			@ r0(spsr)과 r14(lr)을 저장
+     LDR     r13,=PCB_PtrNextTask		@ r13 = PCB_PtrNextTask
+     LDR     r13,[r13]					@ r13 = mem32[r13] 다음 PCB
+     SUB     r13,r13,#60  				@ r13 -= 15 * 4
+     LDMDB   r13,{r0,r14}				@ r0와 r14 로드
+     MSR     spsr_cxsf, r0				@ spsr = r0
+     LDMIA   r13,{r0-r14}^         		@ r0_use에서 r14_user 로드
+     LDR     r13,=PCB_TopOfIRQStack		@ r13 = IRQ 스택 주소
+     LDR     r13,[r13]              	@ r13 = mem32[r13] IRQ 초기화
+     MOVS    pc,r14 					@ 다음 태스크로 분기
+     .end
